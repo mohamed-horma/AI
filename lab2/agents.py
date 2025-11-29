@@ -1,0 +1,312 @@
+# -*- coding: utf-8; mode: python -*-
+
+# ENSICAEN
+# École Nationale Supérieure d'Ingénieurs de Caen
+# 6 Boulevard Maréchal Juin
+# F-14050 Caen Cedex France
+#
+# Artificial Intelligence 2I1AE1
+
+# @file agents.py
+#
+# @author Régis Clouard
+
+from grid import Grid
+import random
+import copy
+
+class CSPAgent:
+    """
+    Abstract class for the agents that implement the
+    various solving strategies.
+    It is based on the Design Pattern Strategy (abstract method is solve()).
+
+    YOU DO NOT NEED TO CHANGE ANYTHING IN THIS CLASS, EVER.
+    """
+    def __init__( self ):
+        self.count = 0;
+
+    def solve( self, grid, heuristic_function ):
+        """ This is the method to implement for each specific agent."""
+        raise Exception("Invalid CSPAgent class, solve() not implemented")
+
+def default_heuristic( domains, assignment ):
+    """
+    Returns the next promising variable.
+    Actually, this version just picks the last free variable.
+    """
+    return domains.popitem()
+
+class DFS( CSPAgent ):
+    """
+    Backtracking version of the agent based on simple
+    uninformed backtracking search: recursive depth-first search.
+    """
+
+    def solve( self, grid, heuristic_function = default_heuristic ):
+        """
+        Returns a solution as a dictionary of assignments:
+        {(1, 3): 1, (3, 0): 0, (3, 2): 1, ...}
+        or None if no solution is found.
+
+        Notice : this implementation strictly follows the algorithm given in ths lecture slides.
+        @param grid the current grid.
+        @param heuristic_function the function used to select the next unassigned variable to consider.
+        """
+
+        self.select_unassigned_variable = heuristic_function
+        domains = grid.get_domain_values()
+        return self.__recursive_backtracking(grid, domains, {})
+    
+
+
+    def __recursive_backtracking( self, grid, domains, assignment ):
+        """
+        This private method is externalized to implement a recursive search.
+        Returns the solution as dictionary or None.
+        """
+        # grid.display(assignment)
+        # input("Count=" + str(self.count))
+        
+        # if assignment is complete then return assignment
+        if len(domains) == 0:
+            return assignment
+
+        #  var = SELECT-UNASSIGNED-VARIABLE(Variables[csp], assignment, csp)
+        (variable, values) = self.select_unassigned_variable(domains, assignment)
+        #  for each value in ORDER-DOMAIN-VALUES(var, assignment, csp) do
+        for value in self.__order_domain_values(values, assignment, grid):
+            #  if value is consistent with assignment given Constraints[csp] then
+            #    add {var = value } to assignment
+            assignment[variable] = value
+            self.count += 1
+            if self.__check_consistency(grid, assignment, variable, value):
+                #    result = RECURSIVE-BACKTRACKING(assignment, csp)
+                #    Use a deep copy of domains to avoid backtracking issues.
+                result = self.__recursive_backtracking(grid, copy.deepcopy(domains), assignment)
+                #    if result != failure then return result
+                if result:
+                    return assignment
+            #    remove {var = value} from assignment
+            del assignment[variable]
+                
+        return None
+
+    def  __order_domain_values( self, values, assignment, grid ):
+        """ 
+        Sorts the values by priority using the current heuristic.
+        Actually, do nothing, just returns the original list.
+        """
+        return values
+
+    def __check_consistency( self, grid, assignment, variable, value ):
+        """
+        Tests whether the specified value of the variable is consistent with the current state.
+        """
+        # 1. Number of values in row <= width / 2
+        if grid.count_in_row(value, variable[1], assignment) > grid.width() / 2:
+            return False
+        # 2. Number of values in column <= height / 2
+        if grid.count_in_column(value, variable[0], assignment) > grid.height() / 2:
+            return False
+        # 3. Number of series of values in the row <= 2
+        if grid.series_length_row(variable[0], variable[1], value, assignment) > 2:
+            return False
+        # 4. Number of series of values in the column <= 2
+        if grid.series_length_column(variable[0], variable[1], value, assignment) > 2:
+            return False
+        # 5. No identical rows
+        if grid.identical_rows(assignment):
+            return False
+        # 6. No identical columns
+        if grid.identical_columns(assignment):
+            return False
+        return True
+
+ #  ______                               _                  __ 
+ # |  ____|                             (_)                /_ |
+ # | |__    __  __   ___   _ __    ___   _   ___    ___     | |
+ # |  __|   \ \/ /  / _ \ | '__|  / __| | | / __|  / _ \    | |
+ # | |____   >  <  |  __/ | |    | (__  | | \__ \ |  __/    | |
+ # |______| /_/\_\  \___| |_|     \___| |_| |___/  \___|    |_|
+
+class FC( CSPAgent ):
+    """
+    This is a backtracking version of the search
+    using constraint propagation of type Forward Checking.
+    """
+
+    def solve( self, grid, heuristic_function = default_heuristic ):
+        """
+        @param grid is a link to the current grid.
+        @param heuristic_function function to select the next unassigned variable to examine.
+
+        """
+        self.select_unassigned_variable = heuristic_function
+        domains = grid.get_domain_values()
+        return self.recursive_fc_search(grid, domains, {})
+
+
+    def recursive_fc_search( self, grid, domains, assignment ):
+        """
+        Returns a solution as a dictionary of assignments:
+        {(1, 3): False, (3, 0): False, (3, 2): False, ...}
+        or None if no solution is found.
+
+        Useful methods:
+        - (variable, values) = self.select_unassigned_variable(domains, assignment): returns the next cell to consider.
+        - grid.get_domain_values(): returns the list of value domain for all unset cells.
+        - grid.get_conflicting_variables(variable, assignment, domains): returns all the cells that are in conflict 
+                      with the specified variable ie. all the cells that cannot have the same value.
+        For debug purpose:
+        - grid.display(assignment): displays the grid with the specified assignment.
+        - input("Next"): stops the execution until a key is struck.
+        """
+        # if assignment is complete then return assignment
+        if len(domains) == 0:
+            return assignment
+
+        #  var = SELECT-UNASSIGNED-VARIABLE(Variables[csp], assignment, csp)
+        (variable, values) = self.select_unassigned_variable(domains, assignment)
+        #  for each value in ORDER-DOMAIN-VALUES(var, assignment, csp) do
+        for value in self.__order_domain_values(values, assignment, domains):
+            #  if value is consistent with assignment given Constraints[csp] then
+            #    add {var = value } to assignment
+            assignment[variable] = value
+            self.count += 1
+            domains1 = self._forward_checking(grid, copy.deepcopy(domains), assignment, variable, value)
+
+            if domains1 != None :
+                #    result = RECURSIVE-BACKTRACKING(assignment, csp)
+                #    Use a deep copy of domains to avoid backtracking issues.
+                result = self.recursive_fc_search(grid,  domains1, assignment)
+                #    if result != failure then return result
+                if result != None:
+                    return assignment
+            #    remove {var = value} from assignment
+            del assignment[variable]
+                
+        return None
+    
+
+    def  __order_domain_values( self, values, assignment, grid ):
+        """ 
+        Sorts the values by priority using the current heuristic.
+        Actually, do nothing, just returns the original list.
+        """
+        return values
+    
+    def _forward_checking(self, grid, domains, assignment, variable, value):
+        cells = grid.get_conflicting_variables(variable, assignment, domains)
+
+        for cell in cells :
+            if value in domains[cell] :
+                domains[cell].remove(value)
+
+                if len(domains[cell]) == 0 :
+                    return None
+        return domains                        
+
+        
+
+ #  ______                               _                  ___  
+ # |  ____|                             (_)                |__ \ 
+ # | |__    __  __   ___   _ __    ___   _   ___    ___       ) |
+ # |  __|   \ \/ /  / _ \ | '__|  / __| | | / __|  / _ \     / / 
+ # | |____   >  <  |  __/ | |    | (__  | | \__ \ |  __/    / /_ 
+ # |______| /_/\_\  \___| |_|     \___| |_| |___/  \___|   |____|
+
+def my_heuristic( domains, assignment ):
+    """
+    A clever heuristic for choosing the next cell to consider.
+    Picks the variable with least remaining values.
+    """
+    best_var = next(iter(domains))
+    lenght = len(domains[best_var])
+    for var in domains :
+        current_size = len(domains[var])
+
+        if current_size < lenght:
+            best_var = var 
+            lenght = current_size
+
+    result = domains.pop(best_var)
+
+    return best_var, result        
+    
+    
+        
+ #  ______                               _                  ____  
+ # |  ____|                             (_)                |___ \ 
+ # | |__    __  __   ___   _ __    ___   _   ___    ___      __) |
+ # |  __|   \ \/ /  / _ \ | '__|  / __| | | / __|  / _ \    |__ < 
+ # | |____   >  <  |  __/ | |    | (__  | | \__ \ |  __/    ___) |
+ # |______| /_/\_\  \___| |_|     \___| |_| |___/  \___|   |____/
+ 
+class AC( FC ):
+    def solve( self, grid, heuristic_function = default_heuristic ):
+        """
+        Returns a solution as a dictionary of assignments:
+        {(1, 3): False, (3, 0): False, (3, 2): False, ...}
+        or None if no solution is found.
+        @param grid is a link to the current grid.
+        @param heuristic_function function to select the next unassigned variable to examine.
+
+        """
+        self.select_unassigned_variable = heuristic_function
+        domains = grid.get_domain_values()
+        # Prune the domain of each variable
+        if self.AC3(grid, domains):
+            # Call the search process.
+            return self.recursive_fc_search(grid, domains, {})
+        else:
+            return None
+
+    def AC3( self, grid, domains, assignment = {}, Xi = None ):
+        """ 
+        Prunes the domain of variables.
+
+        Useful methods:
+        - grid.get_related_variables(Xi): returns the list of all cell coordinates (x,y) that are
+                   in the same line and the same column of the specified cell coordinates Xi.
+        - grid.is_in_conflict(Xi, Xj, value, domains, assignment): checks whether affecting the value v
+                    at the coordinates Xi creates a conflict with the values at the coordinates Xj.
+        """
+        # *** YOUR CODE HERE ***
+
+ #  ______                               _                  _  _   
+ # |  ____|                             (_)                | || |  
+ # | |__    __  __   ___   _ __    ___   _   ___    ___    | || |_ 
+ # |  __|   \ \/ /  / _ \ | '__|  / __| | | / __|  / _ \   |__   _|
+ # | |____   >  <  |  __/ | |    | (__  | | \__ \ |  __/      | |  
+ # |______| /_/\_\  \___| |_|     \___| |_| |___/  \___|      |_|  
+
+class MAC( AC ):
+    def solve( self, grid, heuristic_function = default_heuristic ):
+        """
+        Returns a solution as a dictionary of assignments:
+        {(1, 3): False, (3, 0): False, (3, 2): False, ...}
+        or None if no solution is found.
+        @param grid is a link to the current grid.
+        @param heuristic_function function to select the next unassigned variable to examine.
+        """
+
+        self.select_unassigned_variable = heuristic_function
+        domains = grid.get_domain_values()
+        # Prune the domain of each variable
+        if self.AC3(grid, domains):
+            # Call the search process.
+            return self.__maintening_arc_consistency(grid, domains, {})
+        else:
+            return None
+
+    def __maintening_arc_consistency( self, grid, domains, assignment ):
+        """
+
+        Useful methods:
+        - grid.get_related_variables(Xi): returns the list of all cell coordinates (x,y) that are
+                   in the same line and the same column of the specified cell coordinates Xi.
+        - grid.is_in_conflict(Xi, Xj, value, domains, assignment): checks whether affecting the value v
+                    at the coordinates Xi creates a conflict with the values at the coordinates Xj.
+        """
+        # *** YOUR CODE HERE ***
